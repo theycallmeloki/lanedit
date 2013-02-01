@@ -1,0 +1,14 @@
+body{
+    margin: 20px;
+    padding: 20px;
+    background-color:black;
+    color: #00FF00;
+}
+p{
+    font-size:20px;
+}
+a{
+    color: #00FF00;
+    text-decoration:none;
+    text-decoration: underline;
+}
