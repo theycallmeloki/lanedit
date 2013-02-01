@@ -1,0 +1,19 @@
+This is the Lanedit Readme.
+The package is broken into two parts, the Client and the Server.
+The client (Lanedit)was written in Java and is the actual text editor.
+The server (LanCloud) was wriiten in python and can be run from Google App Engine, and also it is used to run the upload/download part of the client.
+
+The client can be compiled by a simple "javac Lanedit.java" in the source directory.
+
+In order to run it, you either have to be on Linux, with a bash terminal accessible. Or you need to be on windows with Cygwin environment and bash accessible in the PATH.
+then just run it with "java Lanedit" 
+
+You'll have to make an account at http://lanclouder.appspot.com/
+"lanclouder" was the only available id I could use on App Engine.
+"LanCloud" is the actual server package written in python.
+
+If you see any bugs please mail it to me at castlelokesh@gmail.com or use the one in my git profile.
+
+
+
+
