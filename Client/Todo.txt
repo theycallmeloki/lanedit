@@ -1,1 +1,2 @@
-
+Add shortcuts to menu functions
+fix " } " erasing last character
