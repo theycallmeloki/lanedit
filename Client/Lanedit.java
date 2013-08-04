@@ -488,7 +488,10 @@ public class Lanedit{
         public void removeTabCloseBracket(){
             int paneIndex = pane.getSelectedIndex();
             int currentPosition = arrayTextArea.get(paneIndex).getCaretPosition();
-            arrayTextArea.get(paneIndex).replaceRange(null,currentPosition - 1, currentPosition);
+			int prevLetter = arrayTextArea.get(paneIndex).getText().charAt(currentPosition - 1);
+			if(prevLetter == ' '){
+				arrayTextArea.get(paneIndex).replaceRange(null,currentPosition - 1, currentPosition);
+			}
         }
         
         public void indent(){

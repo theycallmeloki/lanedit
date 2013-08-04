@@ -1,5 +1,4 @@
 Add shortcuts to menu functions
-fix " } " erasing last character
 add help menu
 add about menu
 change caret color
