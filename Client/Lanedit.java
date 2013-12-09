@@ -58,6 +58,15 @@ public class Lanedit{
 			UIManager.put("TabbedPane.selectHighlight", Color.BLACK);
 			UIManager.put("TabbedPane.borderHightlightColor", Color.GREEN);
 			UIManager.put("TabbedPane.contentBorderInsets", new Insets(0, 0, 0, 0));
+			UIManager.put("TextArea.selectionBackground", Color.GREEN);
+			UIManager.put("TextArea.selectionForeground", Color.BLACK);
+			UIManager.put("TextField.selectionBackground", Color.GREEN);
+			UIManager.put("TextField.selectionForeground", Color.BLACK);
+			UIManager.put("Menu.selectionBackground", Color.GREEN);
+			UIManager.put("Menu.selectionForeground", Color.BLACK);
+			UIManager.put("MenuItem.selectionBackground", Color.GREEN);
+			UIManager.put("MenuItem.selectionForeground", Color.BLACK);
+			UIManager.put("MenuItem.acceleratorForeground", Color.GREEN);
 			pane = new JTabbedPane(JTabbedPane.BOTTOM);
 			menuBar = new JMenuBar();
 			menuHandler = new MenuHandler();
@@ -106,6 +115,18 @@ public class Lanedit{
 			lancloudMenu.add(loginMenuItem);
 			lancloudMenu.add(uploadMenuItem);
 			lancloudMenu.add(downloadMenuItem);
+			//Start of Keyboard Accelerators:
+			newMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_N, InputEvent.CTRL_MASK));
+			openMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, InputEvent.CTRL_MASK));
+			closeMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_E, InputEvent.CTRL_MASK));
+			saveMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_MASK));
+			addLerminalMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_T, InputEvent.CTRL_MASK | InputEvent.SHIFT_MASK));
+			undoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_MASK));
+			redoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_MASK | InputEvent.SHIFT_MASK));
+			moveLeftMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, InputEvent.ALT_MASK));
+			moveRightMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, InputEvent.ALT_MASK));
+			uploadMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Q, InputEvent.CTRL_MASK));
+			//Lanedit Resources:
 			arrayTextArea = new ArrayList<JTextArea>();
 			arrayFiles = new ArrayList<LanFile>();
 			undoManager = new UndoManager();
@@ -177,7 +198,6 @@ public class Lanedit{
         textArea.setTabSize(4);
 		textArea.setBackground(Color.BLACK);
 		textArea.setForeground(Color.GREEN);
-		textArea.setCaretColor(Color.GREEN);
 		textArea.append(content);
 		textArea.setFont(matrix);
         textArea.addKeyListener(new EnterListener());
@@ -417,9 +437,10 @@ public class Lanedit{
 		}
 	}
 	
+	
     public static void main(String[] args){
         Lanedit lanedit = new Lanedit();
-		lanedit.prompt();
+		//lanedit.prompt();
 		lanedit.AddTab("Lanedit","");
     }
 	
