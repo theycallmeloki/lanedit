@@ -144,9 +144,9 @@ public class Lanedit{
 			fileMenu.setBackground(Color.BLACK);
 			newMenuItem.setForeground(Color.GREEN);
 			newMenuItem.setBackground(Color.BLACK);
-            openMenuItem.setForeground(Color.GREEN);
+            		openMenuItem.setForeground(Color.GREEN);
 			openMenuItem.setBackground(Color.BLACK);
-            closeMenuItem.setForeground(Color.GREEN);
+            		closeMenuItem.setForeground(Color.GREEN);
 			closeMenuItem.setBackground(Color.BLACK);
 			saveMenuItem.setForeground(Color.GREEN);
 			saveMenuItem.setBackground(Color.BLACK);
@@ -156,7 +156,7 @@ public class Lanedit{
 			addLerminalMenuItem.setBackground(Color.BLACK);
 			exitMenuItem.setForeground(Color.GREEN);
 			exitMenuItem.setBackground(Color.BLACK);
-            editMenu.setForeground(Color.GREEN);
+            		editMenu.setForeground(Color.GREEN);
 			editMenu.setBackground(Color.BLACK);
 			undoMenuItem.setForeground(Color.GREEN);
 			undoMenuItem.setBackground(Color.BLACK);
@@ -734,7 +734,7 @@ class LanCloudFramework{
 	
 	public String download(LanCookie cookie,String filename){
 		try{
-			url = new URL(site + "download?uid=" + cookie.getUID() + "&filename=" + filename);
+			url = new URL(site + "download?uid=" + cookie.getUID() + "&filename=" + URLEncoder.encode(filename,"UTF-8"));
 			connector = url.openConnection();
 			reader = new BufferedReader(new InputStreamReader(connector.getInputStream()));
 			builder = new StringBuilder();
