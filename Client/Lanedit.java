@@ -6,6 +6,8 @@ import java.awt.event.*;
 import java.net.*;
 import javax.swing.undo.*;
 import javax.swing.plaf.basic.*;
+import java.nio.charset.StandardCharsets;
+
 
 public class Lanedit{
     JFrame frame;
@@ -28,6 +30,7 @@ public class Lanedit{
 	JMenuItem saveMenuItem;
 	JMenuItem saveasMenuItem;
 	JMenuItem addLerminalMenuItem;
+	JMenuItem addLanvoilaMenuItem;
 	JMenuItem exitMenuItem;
 	JMenu editMenu;
 	JMenuItem undoMenuItem;
@@ -77,6 +80,7 @@ public class Lanedit{
 			saveMenuItem = new JMenuItem("Save");
 			saveasMenuItem = new JMenuItem("Save as");
 			addLerminalMenuItem = new JMenuItem("Add Lerminal");
+			addLanvoilaMenuItem = new JMenuItem("Add Lanvoila");
 			exitMenuItem = new JMenuItem("Exit");
 			fileMenu.add(newMenuItem);
 			fileMenu.add(openMenuItem);
@@ -84,6 +88,7 @@ public class Lanedit{
 			fileMenu.add(saveMenuItem);
 			fileMenu.add(saveasMenuItem);
 			fileMenu.add(addLerminalMenuItem);
+			fileMenu.add(addLanvoilaMenuItem);
 			fileMenu.add(exitMenuItem);
 			newMenuItem.addActionListener(menuHandler);
 			openMenuItem.addActionListener(menuHandler);
@@ -91,6 +96,7 @@ public class Lanedit{
 			saveMenuItem.addActionListener(menuHandler);
 			saveasMenuItem.addActionListener(menuHandler);
 			addLerminalMenuItem.addActionListener(menuHandler);
+			addLanvoilaMenuItem.addActionListener(menuHandler);
 			exitMenuItem.addActionListener(menuHandler);
 			editMenu = new JMenu("Edit");
 			undoMenuItem = new JMenuItem("Undo");
@@ -121,6 +127,9 @@ public class Lanedit{
 			closeMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_E, InputEvent.CTRL_MASK));
 			saveMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_MASK));
 			addLerminalMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_T, InputEvent.CTRL_MASK | InputEvent.SHIFT_MASK));
+			addLanvoilaMenuItem.setAccelerator(
+				KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_MASK | InputEvent.SHIFT_MASK)
+			);
 			undoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_MASK));
 			redoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_MASK | InputEvent.SHIFT_MASK));
 			moveLeftMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, InputEvent.ALT_MASK));
@@ -154,6 +163,8 @@ public class Lanedit{
 			saveasMenuItem.setBackground(Color.BLACK);
 			addLerminalMenuItem.setForeground(Color.GREEN);
 			addLerminalMenuItem.setBackground(Color.BLACK);
+			addLanvoilaMenuItem.setForeground(Color.GREEN);
+			addLanvoilaMenuItem.setBackground(Color.BLACK);
 			exitMenuItem.setForeground(Color.GREEN);
 			exitMenuItem.setBackground(Color.BLACK);
             		editMenu.setForeground(Color.GREEN);
@@ -219,21 +230,32 @@ public class Lanedit{
 		JPanel lermPanel = lerminal.getLerminal();
 		pane.addTab("Lerminal",lermPanel);
 	}
+
+	public void AddLanvoila(){
+		Lanvoila lv = new Lanvoila();
+		lv.setStyle(matrix, Color.BLACK, Color.GREEN);
+		JPanel lvPanel = lv.getPanel();
+		pane.addTab("Lanvoila", lvPanel);
+	}
 	
 	public void RemoveTab(){
 		int length = pane.getTabCount();
 		if(length > 0){
 			int paneIndex = pane.getSelectedIndex();
+			Component comp = pane.getComponentAt(paneIndex); 
 			String paneName = pane.getTitleAt(paneIndex);
+
 			pane.remove(paneIndex);
+
 			if(!(paneName.equalsIgnoreCase("lerminal"))){
-				arrayTextArea.remove(paneIndex);
+				arrayTextArea.remove(Math.min(paneIndex, arrayTextArea.size()-1));
 			}
 		}
 		else{
 			JOptionPane.showMessageDialog(frame,"No tab to remove!","Lanedit says,",JOptionPane.INFORMATION_MESSAGE);
 		}
 	}
+
 
     public void readKeywords(){
         try{
@@ -464,6 +486,9 @@ public class Lanedit{
 			}
 			else if(menuOption.equalsIgnoreCase("add lerminal")){
 				AddLerminal();
+			}
+			else if(menuOption.equalsIgnoreCase("add lanvoila")){
+				AddLanvoila();
 			}
 			else if(menuOption.equalsIgnoreCase("exit")){
 				exit();
@@ -903,3 +928,180 @@ class Lerminal{
 		}
 	}
 }
+
+
+class Lanvoila {
+    private Process serverProcess;
+    private JPanel panel;
+    private JTextArea inputArea;
+    private JPanel chatPanel;
+    private JScrollPane chatScroll;
+
+    public Lanvoila() {
+        startServerIfNeeded();
+        buildUI();
+    }
+
+    // ---------- server boot ----------
+    private boolean isServerListening() {
+        try (java.net.Socket s = new java.net.Socket("localhost", 5000)) {
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private void waitUntilUp(int attempts, int sleepMs) {
+        for (int i = 0; i < attempts; i++) {
+            if (isServerListening()) return;
+            try { Thread.sleep(sleepMs); } catch (InterruptedException ignored) {}
+        }
+    }
+
+    private void startServerIfNeeded() {
+        if (isServerListening()) {
+            System.out.println("[Lanvoila] Python server already running on :5000");
+            return;
+        }
+        try {
+            ProcessBuilder builder = new ProcessBuilder(
+                "python3", "../Server/lanvoila.py"
+            );
+            builder.redirectErrorStream(true);
+            serverProcess = builder.start();
+
+            // pipe server logs to stdout
+            new Thread(() -> {
+                try (BufferedReader br = new BufferedReader(
+                        new InputStreamReader(serverProcess.getInputStream()))) {
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        System.out.println("[Lanvoila] " + line);
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }, "LanvoilaServerLog").start();
+
+            // give it a moment to bind the port
+            waitUntilUp(80, 100); // up to ~8s
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // ---------- UI ----------
+    private void buildUI() {
+        panel = new JPanel(new BorderLayout());
+
+        chatPanel = new JPanel();
+        chatPanel.setLayout(new BoxLayout(chatPanel, BoxLayout.Y_AXIS));
+        chatScroll = new JScrollPane(chatPanel);
+        chatScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+
+        inputArea = new JTextArea(4, 40);
+        inputArea.setLineWrap(true);
+        inputArea.setWrapStyleWord(true);
+
+        // SHIFT+ENTER = send TTS (non-blocking)
+        InputMap im = inputArea.getInputMap(JComponent.WHEN_FOCUSED);
+        ActionMap am = inputArea.getActionMap();
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK), "sendTTS");
+        am.put("sendTTS", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                String text = inputArea.getText().trim();
+                if (!text.isEmpty()) {
+                    addChatBubble("You: " + escapeHtml(text));
+                    inputArea.setText("");
+                    new Thread(() -> sendTTS(text), "LanvoilaTTS").start();
+                }
+            }
+        });
+
+        panel.add(chatScroll, BorderLayout.CENTER);
+        panel.add(new JScrollPane(inputArea), BorderLayout.SOUTH);
+    }
+
+    public void setStyle(Font font, Color bg, Color fg){
+        // container colors
+        panel.setBackground(bg);
+        chatPanel.setBackground(bg);
+        chatScroll.getViewport().setBackground(bg);
+
+        // input styling
+        inputArea.setFont(font);
+        inputArea.setBackground(bg);
+        inputArea.setForeground(fg);
+        inputArea.setCaretColor(fg);
+
+        // scrollbar colors (simple)
+        chatScroll.setBackground(bg);
+    }
+
+    private static String escapeHtml(String s){
+        return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;");
+    }
+
+    private void addChatBubble(String message) {
+        JLabel label = new JLabel("<html><body style='width: 360px'>" + message + "</body></html>");
+        label.setOpaque(true);
+        // matrix-y look: dark bubble with green text
+        label.setBackground(new Color(0, 32, 0));
+        label.setForeground(Color.GREEN);
+        label.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        chatPanel.add(label);
+        chatPanel.revalidate();
+        SwingUtilities.invokeLater(() ->
+            chatScroll.getVerticalScrollBar().setValue(chatScroll.getVerticalScrollBar().getMaximum())
+        );
+    }
+
+    // ---------- HTTP to /tts ----------
+    private void sendTTS(String text) {
+        try {
+            if (!isServerListening()) {
+                addChatBubble("Lanvoila server not reachable on :5000");
+                return;
+            }
+            URL url = new URL("http://localhost:5000/tts");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json");
+
+            String payload = "{\"text\":\"" + text.replace("\"", "\\\"") + "\"}";
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(payload.getBytes(StandardCharsets.UTF_8));
+            }
+
+            if (conn.getResponseCode() == 200) {
+                File out = File.createTempFile("lanvoila_", ".wav");
+                try (InputStream is = conn.getInputStream();
+                     FileOutputStream fos = new FileOutputStream(out)) {
+                    byte[] buf = new byte[4096];
+                    int r;
+                    while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                }
+                addChatBubble("TTS ▶ " + out.getName());
+                // play best-effort; ignore failures
+                try { new ProcessBuilder("aplay", out.getAbsolutePath()).start(); } catch (Exception ignore) {}
+            } else {
+                addChatBubble("HTTP " + conn.getResponseCode() + " from /tts");
+            }
+        } catch (Exception e) {
+            addChatBubble("Error: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    public JPanel getPanel() { return panel; }
+
+    public void stop() {
+        if (serverProcess != null) {
+            serverProcess.destroy();
+            serverProcess = null;
+        }
+    }
+}
+
