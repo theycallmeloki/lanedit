@@ -461,9 +461,11 @@ public class Lanedit{
 	
 	
     public static void main(String[] args){
+		LanvoilaServer.start();
         Lanedit lanedit = new Lanedit();
 		//lanedit.prompt();
 		lanedit.AddTab("Lanedit","");
+		Runtime.getRuntime().addShutdownHook(new Thread(LanvoilaServer::stop));
     }
 	
 	public class MenuHandler implements ActionListener{
@@ -931,7 +933,6 @@ class Lerminal{
 
 
 class Lanvoila {
-    private Process serverProcess;
     private JPanel panel;
     private JTextArea inputArea;
     private JPanel chatPanel;
@@ -949,56 +950,7 @@ class Lanvoila {
 
 
     public Lanvoila() {
-        startServerIfNeeded();
         buildUI();
-    }
-
-    // ---------- server boot ----------
-    private boolean isServerListening() {
-        try (java.net.Socket s = new java.net.Socket("localhost", 5000)) {
-            return true;
-        } catch (IOException e) {
-            return false;
-        }
-    }
-
-    private void waitUntilUp(int attempts, int sleepMs) {
-        for (int i = 0; i < attempts; i++) {
-            if (isServerListening()) return;
-            try { Thread.sleep(sleepMs); } catch (InterruptedException ignored) {}
-        }
-    }
-
-    private void startServerIfNeeded() {
-        if (isServerListening()) {
-            System.out.println("[Lanvoila] Python server already running on :5000");
-            return;
-        }
-        try {
-            ProcessBuilder builder = new ProcessBuilder(
-                "python3", "../Server/lanvoila.py"
-            );
-            builder.redirectErrorStream(true);
-            serverProcess = builder.start();
-
-            // pipe server logs to stdout
-            new Thread(() -> {
-                try (BufferedReader br = new BufferedReader(
-                        new InputStreamReader(serverProcess.getInputStream()))) {
-                    String line;
-                    while ((line = br.readLine()) != null) {
-                        System.out.println("[Lanvoila] " + line);
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }, "LanvoilaServerLog").start();
-
-            // give it a moment to bind the port
-            waitUntilUp(80, 100); // up to ~8s
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
     }
 
     // ---------- UI ----------
@@ -1075,10 +1027,6 @@ class Lanvoila {
     // ---------- HTTP to /tts ----------
     private void sendTTS(String text) {
 		try {
-			if (!isServerListening()) {
-				addChatBubble("Lanvoila server not reachable on :5000");
-				return;
-			}
 			URL url = new URL("http://localhost:5000/tts");
 			HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 			conn.setRequestMethod("POST");
@@ -1096,7 +1044,9 @@ class Lanvoila {
 					FileOutputStream fos = new FileOutputStream(out)) {
 					byte[] buf = new byte[4096];
 					int r;
-					while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+					while ((r = is.read(buf)) != -1) {
+						fos.write(buf, 0, r);
+					}
 				}
 				script.add(new ScriptLine(text, out)); // save line + file
 				addChatBubble("milady ▶ " + escapeHtml(text));
@@ -1110,22 +1060,81 @@ class Lanvoila {
 		}
 	}
 
-	public void replayUntil(int idx){
-		for(int i=0;i<=idx && i<script.size();i++){
-			ScriptLine line = script.get(i);
-			addChatBubble("Replay ▶ " + line.text);
-			playAudio(line.audio);
-			try { Thread.sleep(500); } catch(Exception ignored){} // pacing
-		}
-	}
-
     public JPanel getPanel() { return panel; }
+}
 
-    public void stop() {
-        if (serverProcess != null) {
-            serverProcess.destroy();
-            serverProcess = null;
+class LanvoilaServer {
+    private static Process proc;
+    private static final int PORT = 5000;
+
+    public static void start() {
+        if (proc != null && proc.isAlive()) return;
+
+        try {
+            File script = findScript();
+            String python = findPython();
+
+            ProcessBuilder pb = new ProcessBuilder(python, script.getName());
+            pb.directory(script.getParentFile());                 // <— run in the script’s folder
+            pb.environment().put("PYTHONUNBUFFERED", "1");        // <— flush logs
+            proc = pb.start();
+
+            // Drain logs so the process can’t block and so you can SEE errors
+            new Thread(() -> drain(proc.getInputStream(),  "[py] " ), "lanvoila-stdout").start();
+            new Thread(() -> drain(proc.getErrorStream(),  "[pyE] "), "lanvoila-stderr").start();
+
+            waitUntilPortOpens("127.0.0.1", PORT, 8000);
+            System.out.println("[Lanvoila] HTTP server ready on 127.0.0.1:" + PORT);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to start Lanvoila server", e);
         }
+    }
+
+    public static void stop() {
+        if (proc != null && proc.isAlive()) {
+            proc.destroy();
+            System.out.println("[Lanvoila] server stopped");
+        }
+    }
+
+    // ---------- helpers ----------
+    private static String findPython() {
+        String os = System.getProperty("os.name").toLowerCase();
+        return os.contains("win") ? "python" : "python3";
+    }
+
+    private static File findScript() {
+        String[] candidates = {
+            "Server/lanvoila.py",
+            "./Server/lanvoila.py",
+            "../Server/lanvoila.py",
+            "lanvoila.py"
+        };
+        for (String c : candidates) {
+            File f = new File(c).getAbsoluteFile();
+            if (f.exists()) return f;
+        }
+        throw new IllegalStateException(
+            "lanvoila.py not found. Working dir: " + new File(".").getAbsolutePath());
+    }
+
+    private static void drain(InputStream is, String prefix) {
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(is))) {
+            String line;
+            while ((line = br.readLine()) != null) System.out.println(prefix + line);
+        } catch (IOException ignored) {}
+    }
+
+    private static void waitUntilPortOpens(String host, int port, int timeoutMs) throws InterruptedException {
+        long end = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < end) {
+            try (Socket s = new Socket()) {
+                s.connect(new InetSocketAddress(host, port), 200);
+                return; // success
+            } catch (IOException ignored) {}
+            Thread.sleep(100);
+        }
+        System.err.println("[Lanvoila] server did not open port " + port + " in time.");
     }
 }
 
