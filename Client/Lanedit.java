@@ -131,9 +131,6 @@ public class Lanedit{
 			// addLanvoilaMenuItem.setAccelerator(
 			// 	KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_MASK | InputEvent.SHIFT_MASK)
 			// );
-			lanvoila = new Lanvoila();
-			lanvoila.setStyle(matrix, Color.BLACK, Color.GREEN);
-			pane.addTab("Lanvoila", lanvoila.getPanel());
 			undoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_MASK));
 			redoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_MASK | InputEvent.SHIFT_MASK));
 			moveLeftMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, InputEvent.ALT_MASK));
@@ -148,6 +145,9 @@ public class Lanedit{
 			graphicsEnvironment = GraphicsEnvironment.getLocalGraphicsEnvironment();
 			graphicsEnvironment.registerFont(matrix);
 			origWord = "";
+			lanvoila = new Lanvoila();
+			lanvoila.setStyle(matrix, Color.BLACK, Color.GREEN);
+			pane.addTab("Lanvoila", lanvoila.getPanel());
 			//Changing colors for everything: 
 			pane.setForeground(Color.GREEN);
 			pane.setBackground(Color.BLACK);
@@ -935,6 +935,7 @@ class Lanvoila {
     private JTextArea inputArea;
     private JPanel chatPanel;
     private JScrollPane chatScroll;
+	private Font matrix;
 
 	private static class ScriptLine {
 		String text;
@@ -985,6 +986,8 @@ class Lanvoila {
     }
 
     public void setStyle(Font font, Color bg, Color fg){
+		// set font
+		this.matrix = font;
         // container colors
         panel.setBackground(bg);
         chatPanel.setBackground(bg);
@@ -1002,31 +1005,83 @@ class Lanvoila {
 
     // ---------- Chat ----------
     private void addChatBubble(String text, File audioFile) {
-        JButton bubble = new JButton(text);
-        bubble.setFont(inputArea.getFont().deriveFont(24f)); // larger text
-        bubble.setForeground(Color.GREEN);
-        bubble.setBackground(Color.BLACK);
-        bubble.setBorderPainted(false);
-        bubble.setFocusPainted(false);
-        bubble.setHorizontalAlignment(SwingConstants.LEFT);
+		// Ensure this runs on the EDT
+		SwingUtilities.invokeLater(() -> {
+			String timestamp = new java.text.SimpleDateFormat("HH:mm").format(new java.util.Date());
 
-        bubble.addActionListener(e -> {
-            if (audioFile != null && audioFile.exists()) {
-                playAudio(audioFile);
-            } else {
-                new Thread(() -> sendTTS(text), "LanvoilaReplay").start();
-            }
-        });
+			// pick play glyph if font supports it, else fallback
+			char playChar = '\u25B6';
+			String play = (matrix != null && matrix.canDisplay(playChar)) ? " \u25B6 " : " > ";
 
-        JPanel wrapper = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        wrapper.setBackground(Color.BLACK);
-        wrapper.add(bubble);
-        chatPanel.add(wrapper);
-        chatPanel.revalidate();
-        SwingUtilities.invokeLater(() ->
-            chatScroll.getVerticalScrollBar().setValue(
-                chatScroll.getVerticalScrollBar().getMaximum()));
-    }
+			// left message label
+			JLabel msgLabel = new JLabel("milady" + play + text);
+			Font msgFont = (matrix != null) ? matrix.deriveFont(22f) : new Font("Monospaced", Font.PLAIN, 22);
+			msgLabel.setFont(msgFont);
+			msgLabel.setForeground(Color.GREEN);
+			msgLabel.setBackground(Color.BLACK);
+			msgLabel.setOpaque(false);
+			msgLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+			// right timestamp label
+			JLabel timeLabel = new JLabel("[" + timestamp + "]");
+			Font timeFont = (matrix != null) ? matrix.deriveFont(14f) : new Font("Monospaced", Font.PLAIN, 14);
+			timeLabel.setFont(timeFont);
+			timeLabel.setForeground(Color.GREEN);
+			timeLabel.setBackground(Color.BLACK);
+			timeLabel.setOpaque(false);
+			timeLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+			// row with GridBag so left text expands and time stays right
+			JPanel row = new JPanel(new GridBagLayout());
+			row.setBackground(Color.BLACK);
+			GridBagConstraints gbc = new GridBagConstraints();
+			gbc.insets = new Insets(2, 8, 2, 8);
+
+			// msgLabel: occupies remaining horizontal space
+			gbc.gridx = 0;
+			gbc.weightx = 1.0;
+			gbc.fill = GridBagConstraints.HORIZONTAL;
+			gbc.anchor = GridBagConstraints.WEST;
+			row.add(msgLabel, gbc);
+
+			// timeLabel: anchored to right, no weight
+			gbc = new GridBagConstraints();
+			gbc.gridx = 1;
+			gbc.weightx = 0.0;
+			gbc.anchor = GridBagConstraints.EAST;
+			gbc.insets = new Insets(2, 8, 2, 8);
+			row.add(timeLabel, gbc);
+
+			// constrain the row's max height so BoxLayout doesn't stretch it
+			int h = Math.max(msgLabel.getPreferredSize().height, timeLabel.getPreferredSize().height) + 6;
+			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
+			row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+			// click to replay audio (or re-request TTS)
+			row.addMouseListener(new MouseAdapter() {
+				@Override
+				public void mouseClicked(MouseEvent e) {
+					if (audioFile != null && audioFile.exists()) {
+						// play on click
+						new Thread(() -> playAudio(audioFile), "LanvoilaPlay").start();
+					} else {
+						// re-request TTS in background
+						new Thread(() -> sendTTS(text), "LanvoilaReplay").start();
+					}
+				}
+			});
+
+			// add to chatPanel and keep spacing small & consistent
+			chatPanel.add(row);
+			chatPanel.add(Box.createVerticalStrut(4)); // small gap
+			chatPanel.revalidate();
+
+			// scroll to bottom
+			SwingUtilities.invokeLater(() ->
+				chatScroll.getVerticalScrollBar().setValue(chatScroll.getVerticalScrollBar().getMaximum())
+			);
+		});
+	}
 
 	// ---------- Playback ----------
     private void playAudio(File file) {
@@ -1064,7 +1119,7 @@ class Lanvoila {
                     while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
                 }
                 script.add(new ScriptLine(text, out));
-                addChatBubble("milady ▶ " + text, out);
+                addChatBubble(text, out);
                 playAudio(out);
             } else {
                 addChatBubble("HTTP " + conn.getResponseCode() + " from /tts", null);
