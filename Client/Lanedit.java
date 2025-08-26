@@ -31,6 +31,7 @@ public class Lanedit{
 	JMenuItem saveasMenuItem;
 	JMenuItem addLerminalMenuItem;
 	JMenuItem addLanvoilaMenuItem;
+	Lanvoila lanvoila;
 	JMenuItem exitMenuItem;
 	JMenu editMenu;
 	JMenuItem undoMenuItem;
@@ -88,7 +89,7 @@ public class Lanedit{
 			fileMenu.add(saveMenuItem);
 			fileMenu.add(saveasMenuItem);
 			fileMenu.add(addLerminalMenuItem);
-			fileMenu.add(addLanvoilaMenuItem);
+			// fileMenu.add(addLanvoilaMenuItem);
 			fileMenu.add(exitMenuItem);
 			newMenuItem.addActionListener(menuHandler);
 			openMenuItem.addActionListener(menuHandler);
@@ -96,7 +97,7 @@ public class Lanedit{
 			saveMenuItem.addActionListener(menuHandler);
 			saveasMenuItem.addActionListener(menuHandler);
 			addLerminalMenuItem.addActionListener(menuHandler);
-			addLanvoilaMenuItem.addActionListener(menuHandler);
+			// addLanvoilaMenuItem.addActionListener(menuHandler);
 			exitMenuItem.addActionListener(menuHandler);
 			editMenu = new JMenu("Edit");
 			undoMenuItem = new JMenuItem("Undo");
@@ -127,9 +128,12 @@ public class Lanedit{
 			closeMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_E, InputEvent.CTRL_MASK));
 			saveMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_MASK));
 			addLerminalMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_T, InputEvent.CTRL_MASK | InputEvent.SHIFT_MASK));
-			addLanvoilaMenuItem.setAccelerator(
-				KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_MASK | InputEvent.SHIFT_MASK)
-			);
+			// addLanvoilaMenuItem.setAccelerator(
+			// 	KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_MASK | InputEvent.SHIFT_MASK)
+			// );
+			lanvoila = new Lanvoila();
+			lanvoila.setStyle(matrix, Color.BLACK, Color.GREEN);
+			pane.addTab("Lanvoila", lanvoila.getPanel());
 			undoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_MASK));
 			redoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_MASK | InputEvent.SHIFT_MASK));
 			moveLeftMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, InputEvent.ALT_MASK));
@@ -191,7 +195,7 @@ public class Lanedit{
 			menuBar.add(fileMenu);
 			menuBar.add(editMenu);
 			menuBar.add(lancloudMenu);
-			frame.setSize(600,600);
+			frame.setSize(800,800);
 			frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 			frame.getContentPane().setBackground(Color.BLACK);
 			frame.setVisible(true);
@@ -230,13 +234,6 @@ public class Lanedit{
 		JPanel lermPanel = lerminal.getLerminal();
 		pane.addTab("Lerminal",lermPanel);
 	}
-
-	public void AddLanvoila(){
-		Lanvoila lv = new Lanvoila();
-		lv.setStyle(matrix, Color.BLACK, Color.GREEN);
-		JPanel lvPanel = lv.getPanel();
-		pane.addTab("Lanvoila", lvPanel);
-	}
 	
 	public void RemoveTab(){
 		int length = pane.getTabCount();
@@ -244,6 +241,10 @@ public class Lanedit{
 			int paneIndex = pane.getSelectedIndex();
 			Component comp = pane.getComponentAt(paneIndex); 
 			String paneName = pane.getTitleAt(paneIndex);
+			if(paneName.equalsIgnoreCase("lanvoila")){
+				JOptionPane.showMessageDialog(frame,"Can't remove Lanvoila.","Lanedit says,",JOptionPane.INFORMATION_MESSAGE);
+				return;
+			}
 
 			pane.remove(paneIndex);
 
@@ -488,9 +489,6 @@ public class Lanedit{
 			}
 			else if(menuOption.equalsIgnoreCase("add lerminal")){
 				AddLerminal();
-			}
-			else if(menuOption.equalsIgnoreCase("add lanvoila")){
-				AddLanvoila();
 			}
 			else if(menuOption.equalsIgnoreCase("exit")){
 				exit();
@@ -1002,63 +1000,81 @@ class Lanvoila {
         chatScroll.setBackground(bg);
     }
 
-    private static String escapeHtml(String s){
-        return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;");
-    }
+    // ---------- Chat ----------
+    private void addChatBubble(String text, File audioFile) {
+        JButton bubble = new JButton(text);
+        bubble.setFont(inputArea.getFont().deriveFont(24f)); // larger text
+        bubble.setForeground(Color.GREEN);
+        bubble.setBackground(Color.BLACK);
+        bubble.setBorderPainted(false);
+        bubble.setFocusPainted(false);
+        bubble.setHorizontalAlignment(SwingConstants.LEFT);
 
-    private void addChatBubble(String message) {
-        JLabel label = new JLabel("<html><body style='width: 360px'>" + message + "</body></html>");
-        label.setOpaque(true);
-        // matrix-y look: dark bubble with green text
-        label.setBackground(new Color(0, 32, 0));
-        label.setForeground(Color.GREEN);
-        label.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
-        chatPanel.add(label);
+        bubble.addActionListener(e -> {
+            if (audioFile != null && audioFile.exists()) {
+                playAudio(audioFile);
+            } else {
+                new Thread(() -> sendTTS(text), "LanvoilaReplay").start();
+            }
+        });
+
+        JPanel wrapper = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        wrapper.setBackground(Color.BLACK);
+        wrapper.add(bubble);
+        chatPanel.add(wrapper);
         chatPanel.revalidate();
         SwingUtilities.invokeLater(() ->
-            chatScroll.getVerticalScrollBar().setValue(chatScroll.getVerticalScrollBar().getMaximum())
-        );
+            chatScroll.getVerticalScrollBar().setValue(
+                chatScroll.getVerticalScrollBar().getMaximum()));
     }
 
-	private void playAudio(File wav){
-		try { new ProcessBuilder("aplay", wav.getAbsolutePath()).start(); } catch (Exception ignore) {}
-	}
+	// ---------- Playback ----------
+    private void playAudio(File file) {
+        try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file))) {
+            javax.sound.sampled.AudioInputStream ais =
+                javax.sound.sampled.AudioSystem.getAudioInputStream(bis);
+            javax.sound.sampled.Clip clip = javax.sound.sampled.AudioSystem.getClip();
+            clip.open(ais);
+            clip.start();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 
     // ---------- HTTP to /tts ----------
     private void sendTTS(String text) {
-		try {
-			URL url = new URL("http://localhost:5000/tts");
-			HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-			conn.setRequestMethod("POST");
-			conn.setDoOutput(true);
-			conn.setRequestProperty("Content-Type", "application/json");
+        try {
+            URL url = new URL("http://localhost:5000/tts");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json");
 
-			String payload = "{\"text\":\"" + text.replace("\"", "\\\"") + "\"}";
-			try (OutputStream os = conn.getOutputStream()) {
-				os.write(payload.getBytes(StandardCharsets.UTF_8));
-			}
+            String payload = "{\"text\":\"" + text.replace("\"", "\\\"") + "\"}";
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(payload.getBytes(StandardCharsets.UTF_8));
+            }
 
-			if (conn.getResponseCode() == 200) {
-				File out = File.createTempFile("lanvoila_", ".wav");
-				try (InputStream is = conn.getInputStream();
-					FileOutputStream fos = new FileOutputStream(out)) {
-					byte[] buf = new byte[4096];
-					int r;
-					while ((r = is.read(buf)) != -1) {
-						fos.write(buf, 0, r);
-					}
-				}
-				script.add(new ScriptLine(text, out)); // save line + file
-				addChatBubble("milady ▶ " + escapeHtml(text));
-				playAudio(out);
-			} else {
-				addChatBubble("HTTP " + conn.getResponseCode() + " from /tts");
-			}
-		} catch (Exception e) {
-			addChatBubble("Error: " + e.getMessage());
-			e.printStackTrace();
-		}
-	}
+            if (conn.getResponseCode() == 200) {
+                File out = File.createTempFile("lanvoila_", ".wav");
+                try (InputStream is = conn.getInputStream();
+                     FileOutputStream fos = new FileOutputStream(out)) {
+                    byte[] buf = new byte[4096];
+                    int r;
+                    while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                }
+                script.add(new ScriptLine(text, out));
+                addChatBubble("milady ▶ " + text, out);
+                playAudio(out);
+            } else {
+                addChatBubble("HTTP " + conn.getResponseCode() + " from /tts", null);
+            }
+        } catch (Exception e) {
+            addChatBubble("Error: " + e.getMessage(), null);
+            e.printStackTrace();
+        }
+    }
+
 
     public JPanel getPanel() { return panel; }
 }
