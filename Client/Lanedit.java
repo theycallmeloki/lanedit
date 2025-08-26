@@ -937,6 +937,17 @@ class Lanvoila {
     private JPanel chatPanel;
     private JScrollPane chatScroll;
 
+	private static class ScriptLine {
+		String text;
+		File audio;
+		ScriptLine(String text, File audio) {
+			this.text = text; this.audio = audio;
+		}
+	}
+
+	private final java.util.List<ScriptLine> script = new ArrayList<>();
+
+
     public Lanvoila() {
         startServerIfNeeded();
         buildUI();
@@ -1012,7 +1023,7 @@ class Lanvoila {
             public void actionPerformed(ActionEvent e) {
                 String text = inputArea.getText().trim();
                 if (!text.isEmpty()) {
-                    addChatBubble("You: " + escapeHtml(text));
+                    // addChatBubble("You: " + escapeHtml(text));
                     inputArea.setText("");
                     new Thread(() -> sendTTS(text), "LanvoilaTTS").start();
                 }
@@ -1057,43 +1068,56 @@ class Lanvoila {
         );
     }
 
+	private void playAudio(File wav){
+		try { new ProcessBuilder("aplay", wav.getAbsolutePath()).start(); } catch (Exception ignore) {}
+	}
+
     // ---------- HTTP to /tts ----------
     private void sendTTS(String text) {
-        try {
-            if (!isServerListening()) {
-                addChatBubble("Lanvoila server not reachable on :5000");
-                return;
-            }
-            URL url = new URL("http://localhost:5000/tts");
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("POST");
-            conn.setDoOutput(true);
-            conn.setRequestProperty("Content-Type", "application/json");
+		try {
+			if (!isServerListening()) {
+				addChatBubble("Lanvoila server not reachable on :5000");
+				return;
+			}
+			URL url = new URL("http://localhost:5000/tts");
+			HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+			conn.setRequestMethod("POST");
+			conn.setDoOutput(true);
+			conn.setRequestProperty("Content-Type", "application/json");
 
-            String payload = "{\"text\":\"" + text.replace("\"", "\\\"") + "\"}";
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(payload.getBytes(StandardCharsets.UTF_8));
-            }
+			String payload = "{\"text\":\"" + text.replace("\"", "\\\"") + "\"}";
+			try (OutputStream os = conn.getOutputStream()) {
+				os.write(payload.getBytes(StandardCharsets.UTF_8));
+			}
 
-            if (conn.getResponseCode() == 200) {
-                File out = File.createTempFile("lanvoila_", ".wav");
-                try (InputStream is = conn.getInputStream();
-                     FileOutputStream fos = new FileOutputStream(out)) {
-                    byte[] buf = new byte[4096];
-                    int r;
-                    while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
-                }
-                addChatBubble("TTS ▶ " + out.getName());
-                // play best-effort; ignore failures
-                try { new ProcessBuilder("aplay", out.getAbsolutePath()).start(); } catch (Exception ignore) {}
-            } else {
-                addChatBubble("HTTP " + conn.getResponseCode() + " from /tts");
-            }
-        } catch (Exception e) {
-            addChatBubble("Error: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
+			if (conn.getResponseCode() == 200) {
+				File out = File.createTempFile("lanvoila_", ".wav");
+				try (InputStream is = conn.getInputStream();
+					FileOutputStream fos = new FileOutputStream(out)) {
+					byte[] buf = new byte[4096];
+					int r;
+					while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+				}
+				script.add(new ScriptLine(text, out)); // save line + file
+				addChatBubble("milady ▶ " + escapeHtml(text));
+				playAudio(out);
+			} else {
+				addChatBubble("HTTP " + conn.getResponseCode() + " from /tts");
+			}
+		} catch (Exception e) {
+			addChatBubble("Error: " + e.getMessage());
+			e.printStackTrace();
+		}
+	}
+
+	public void replayUntil(int idx){
+		for(int i=0;i<=idx && i<script.size();i++){
+			ScriptLine line = script.get(i);
+			addChatBubble("Replay ▶ " + line.text);
+			playAudio(line.audio);
+			try { Thread.sleep(500); } catch(Exception ignored){} // pacing
+		}
+	}
 
     public JPanel getPanel() { return panel; }
 
