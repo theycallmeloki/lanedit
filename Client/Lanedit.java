@@ -1204,9 +1204,11 @@ class Lanvoila {
 			chatPanel.add(Box.createVerticalStrut(6));
 			chatPanel.revalidate();
 
-			// scroll to bottom
-			chatScroll.getVerticalScrollBar().setValue(chatScroll.getVerticalScrollBar().getMaximum());
-
+			// scroll to bottom (defer until layout done)
+			SwingUtilities.invokeLater(() -> {
+				JScrollBar vsb = chatScroll.getVerticalScrollBar();
+				vsb.setValue(vsb.getMaximum());
+			});
 			result[0] = bubble;
 		};
 
@@ -1253,18 +1255,40 @@ class Lanvoila {
 		scroll.getVerticalScrollBar().setUI(new BasicScrollBarUI() {
 			@Override
 			protected void configureScrollBarColors() {
-				this.thumbColor = new Color(0, 255, 70); // neon green
+				this.thumbColor = new Color(0, 255, 70);
 				this.trackColor = Color.BLACK;
 			}
 
 			@Override
+			protected JButton createDecreaseButton(int orientation) {
+				return createZeroButton();
+			}
+
+			@Override
+			protected JButton createIncreaseButton(int orientation) {
+				return createZeroButton();
+			}
+
+			private JButton createZeroButton() {
+				JButton btn = new JButton();
+				btn.setPreferredSize(new Dimension(0, 0));
+				btn.setMinimumSize(new Dimension(0, 0));
+				btn.setMaximumSize(new Dimension(0, 0));
+				btn.setOpaque(false);
+				btn.setFocusable(false);
+				btn.setBorder(BorderFactory.createEmptyBorder());
+				return btn;
+			}
+
+			@Override
 			protected void paintThumb(Graphics g, JComponent c, Rectangle r) {
+				if (!c.isEnabled()) return;
 				Graphics2D g2 = (Graphics2D) g.create();
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-				g2.setColor(new Color(0, 255, 70, 180)); // translucent green
+				g2.setColor(new Color(0, 255, 70, 180));
 				g2.fillRoundRect(r.x, r.y, r.width, r.height, 12, 12);
 				g2.setColor(new Color(0, 255, 70));
-				g2.drawRoundRect(r.x, r.y, r.width-1, r.height-1, 12, 12);
+				g2.drawRoundRect(r.x, r.y, r.width - 1, r.height - 1, 12, 12);
 				g2.dispose();
 			}
 
