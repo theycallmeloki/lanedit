@@ -1,11 +1,15 @@
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
 import java.awt.*;
 
+import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.Clip;
+import javax.sound.sampled.DataLine;
 import javax.sound.sampled.LineEvent;
+import javax.sound.sampled.SourceDataLine;
 import javax.swing.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
@@ -961,6 +965,16 @@ class Lanvoila {
 		}
 	}
 
+	private void enqueueBubble(String text, File audioFile) {
+		Bubble bubble = addChatBubble(text, audioFile); // just builds UI
+		synchronized (playbackQueue) {
+			playbackQueue.add(bubble);
+			if (!isPlaying) {
+				playNextBubble();
+			}
+		}
+	}
+
 	private static class ScriptLine {
 		String text;
 		File audio;
@@ -1082,8 +1096,10 @@ class Lanvoila {
     }
 
     // ---------- Chat ----------
-    private void addChatBubble(String text, File audioFile) {
-		SwingUtilities.invokeLater(() -> {
+    private Bubble addChatBubble(String text, File audioFile) {
+		final Bubble[] result = new Bubble[1];
+
+		Runnable r = () -> {
 			String timestamp = new java.text.SimpleDateFormat("HH:mm").format(new java.util.Date());
 
 			// choose play glyph
@@ -1117,8 +1133,8 @@ class Lanvoila {
 			int charWidth = fm.charWidth('M');
 			int panelWidth = chatPanel.getWidth() > 0 ? chatPanel.getWidth() : 600;
 			int maxTextWidth = (int)(panelWidth * 0.6); // message take ~60% space
-			msgArea.setColumns(maxTextWidth / charWidth);
-			int textLines = (int)Math.ceil((double)msgArea.getText().length() / msgArea.getColumns());
+			msgArea.setColumns(Math.max(10, maxTextWidth / Math.max(1, charWidth)));
+			int textLines = (int)Math.ceil((double)msgArea.getText().length() / Math.max(1, msgArea.getColumns()));
 			msgArea.setRows(Math.max(1, textLines));
 			msgArea.setSize(new Dimension(maxTextWidth, lineHeight * msgArea.getRows() + 4));
 			msgArea.setPreferredSize(msgArea.getSize());
@@ -1164,14 +1180,20 @@ class Lanvoila {
 			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
 			row.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-			// clickable for audio replay
+			// clickable for audio replay - use the bubble instance below
+			// We'll create bubble first, then attach mouse listener referencing it.
+
+			Bubble bubble = new Bubble(row, msgArea, audioFile, text);
+
 			msgArea.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 			msgArea.addMouseListener(new MouseAdapter() {
 				@Override
 				public void mouseClicked(MouseEvent e) {
-					if (audioFile != null && audioFile.exists()) {
-						new Thread(() -> playAudio(audioFile), "LanvoilaPlay").start();
+					if (bubble.audio != null && bubble.audio.exists()) {
+						// manual replay shouldn't enqueue duplicate UI bubble, so just play the file directly
+						new Thread(() -> playAudio(bubble), "LanvoilaPlay").start();
 					} else {
+						// if no audio present, synthesize and enqueue normally
 						new Thread(() -> sendTTS(text), "LanvoilaReplay").start();
 					}
 				}
@@ -1182,29 +1204,22 @@ class Lanvoila {
 			chatPanel.add(Box.createVerticalStrut(6));
 			chatPanel.revalidate();
 
-			Bubble bubble = new Bubble(row, msgArea, audioFile, text);
-			synchronized (playbackQueue) {
-				playbackQueue.add(bubble);
-				if (!isPlaying) {
-					playNextBubble();
-				}
-			}
-
 			// scroll to bottom
-			SwingUtilities.invokeLater(() ->
-				chatScroll.getVerticalScrollBar().setValue(chatScroll.getVerticalScrollBar().getMaximum())
-			);
-		});
-	}
+			chatScroll.getVerticalScrollBar().setValue(chatScroll.getVerticalScrollBar().getMaximum());
 
-	private void setBubbleActive(Bubble bubble, boolean active) {
-		if (active) {
-			bubble.msgArea.setBackground(Color.GREEN);
-			bubble.msgArea.setForeground(Color.BLACK);
-		} else {
-			bubble.msgArea.setBackground(Color.BLACK);
-			bubble.msgArea.setForeground(Color.GREEN);
+			result[0] = bubble;
+		};
+
+		try {
+			SwingUtilities.invokeAndWait(r);
+		} catch (Exception e) {
+			// fallback: run on EDT asynchronously and block briefly (shouldn't happen normally)
+			e.printStackTrace();
+			SwingUtilities.invokeLater(r);
+			try { Thread.sleep(50); } catch (InterruptedException ignored) {}
 		}
+
+		return result[0];
 	}
 
 	private void playNextBubble() {
@@ -1218,28 +1233,20 @@ class Lanvoila {
 			isPlaying = true;
 		}
 
-		// invert colors
+		// invert colors for active bubble
 		SwingUtilities.invokeLater(() -> {
 			bubble.msgArea.setBackground(Color.GREEN);
 			bubble.msgArea.setForeground(Color.BLACK);
 		});
 
-		new Thread(() -> {
-			if (bubble.audio != null && bubble.audio.exists()) {
-				playAudio(bubble.audio);
-			} else {
-				sendTTS(bubble.text);
-			}
-
-			// restore colors after playback
-			SwingUtilities.invokeLater(() -> {
-				bubble.msgArea.setBackground(Color.BLACK);
-				bubble.msgArea.setForeground(Color.GREEN);
-			});
-
-			// continue with next
-			playNextBubble();
-		}, "LanvoilaPlayQueue").start();
+		if (bubble.audio != null && bubble.audio.exists()) {
+			playAudio(bubble);
+		} else {
+			// no audio yet, synthesize
+			new Thread(() -> sendTTS(bubble.text), "LanvoilaTTSWorker").start();
+			// when TTS finishes, it enqueues a new bubble — playback resumes automatically
+			isPlaying = false;
+		}
 	}
 
 	private void themeScrollBar(JScrollPane scroll) {
@@ -1273,66 +1280,147 @@ class Lanvoila {
 		scroll.getVerticalScrollBar().setPreferredSize(new Dimension(12, Integer.MAX_VALUE));
 	}
 
+	private void playAudio(File file) {
+		Bubble fake = new Bubble(null, null, file, "<manual replay>");
+		playAudio(fake);
+	}
 
 	// ---------- Playback ----------
-    private void playAudio(File audioFile) {
-		try (AudioInputStream ais = AudioSystem.getAudioInputStream(audioFile)) {
-			Clip clip = AudioSystem.getClip();
-			clip.open(ais);
+    private void playAudio(Bubble bubble) {
+		// run streaming playback in worker thread; ensure we block that thread until audio finishes
+		new Thread(() -> {
+			AudioInputStream in = null;
+			SourceDataLine line = null;
+			try {
+				System.out.println("[Lanvoila] open audio: " + (bubble.audio != null ? bubble.audio.getAbsolutePath() : "null"));
+				in = AudioSystem.getAudioInputStream(bubble.audio);
+				AudioFormat baseFormat = in.getFormat();
 
-			Object lock = new Object();
-			clip.addLineListener(event -> {
-				if (event.getType() == LineEvent.Type.STOP) {
-					synchronized (lock) {
-						lock.notify();
-					}
+				// Convert to PCM_SIGNED if needed
+				AudioFormat decodedFormat = baseFormat;
+				if (baseFormat.getEncoding() != AudioFormat.Encoding.PCM_SIGNED) {
+					decodedFormat = new AudioFormat(
+						AudioFormat.Encoding.PCM_SIGNED,
+						baseFormat.getSampleRate(),
+						16,
+						baseFormat.getChannels(),
+						baseFormat.getChannels() * 2,
+						baseFormat.getSampleRate(),
+						false
+					);
+					in = AudioSystem.getAudioInputStream(decodedFormat, in);
 				}
-			});
 
-			clip.start();
-			synchronized (lock) {
-				lock.wait(); // block until STOP
+				AudioFormat playFormat = in.getFormat();
+				DataLine.Info info = new DataLine.Info(SourceDataLine.class, playFormat);
+				if (!AudioSystem.isLineSupported(info)) {
+					// try fallback by converting to a common format (16bit PCM, stereo)
+					AudioFormat fallback = new AudioFormat(
+						AudioFormat.Encoding.PCM_SIGNED,
+						playFormat.getSampleRate(),
+						16,
+						Math.max(1, playFormat.getChannels()),
+						Math.max(1, playFormat.getChannels()) * 2,
+						playFormat.getSampleRate(),
+						false
+					);
+					in = AudioSystem.getAudioInputStream(fallback, in);
+					playFormat = in.getFormat();
+					info = new DataLine.Info(SourceDataLine.class, playFormat);
+				}
+
+				line = (SourceDataLine) AudioSystem.getLine(info);
+				line.open(playFormat);
+				line.start();
+
+				System.out.println("[Lanvoila] Playing: " + bubble.audio.getName());
+
+				// invert colors (UI)
+				if (bubble.msgArea != null) {
+					SwingUtilities.invokeLater(() -> {
+						bubble.msgArea.setBackground(Color.GREEN);
+						bubble.msgArea.setForeground(Color.BLACK);
+					});
+				}
+
+				byte[] buffer = new byte[4096];
+				int n;
+				while ((n = in.read(buffer, 0, buffer.length)) != -1) {
+					line.write(buffer, 0, n);
+				}
+
+				// drain and stop
+				line.drain();
+				line.stop();
+				line.close();
+				in.close();
+
+				System.out.println("[Lanvoila] Finished: " + bubble.audio.getName());
+
+				// restore colors
+				if (bubble.msgArea != null) {
+					SwingUtilities.invokeLater(() -> {
+						bubble.msgArea.setBackground(Color.BLACK);
+						bubble.msgArea.setForeground(Color.GREEN);
+					});
+				}
+			} catch (Exception e) {
+				e.printStackTrace();
+				if (bubble.msgArea != null) {
+					SwingUtilities.invokeLater(() -> {
+						bubble.msgArea.setBackground(Color.RED);
+						bubble.msgArea.setForeground(Color.BLACK);
+					});
+				}
+			} finally {
+				try { if (in != null) in.close(); } catch (Exception ignored) {}
+				if (line != null && line.isOpen()) {
+					try { line.stop(); line.close(); } catch (Exception ignored) {}
+				}
+
+				// continue queue
+				synchronized (playbackQueue) {
+					isPlaying = false;
+				}
+				// small yield to avoid re-entrancy weirdness
+				SwingUtilities.invokeLater(this::playNextBubble);
 			}
-
-			clip.close();
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
+		}, "LanvoilaPlayAudio").start();
 	}
+
 
     // ---------- HTTP to /tts ----------
     private void sendTTS(String text) {
-        try {
-            URL url = new URL("http://localhost:5000/tts");
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("POST");
-            conn.setDoOutput(true);
-            conn.setRequestProperty("Content-Type", "application/json");
+		try {
+			URL url = new URL("http://localhost:5000/tts");
+			HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+			conn.setRequestMethod("POST");
+			conn.setDoOutput(true);
+			conn.setRequestProperty("Content-Type", "application/json");
 
-            String payload = "{\"text\":\"" + text.replace("\"", "\\\"") + "\"}";
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(payload.getBytes(StandardCharsets.UTF_8));
-            }
+			String payload = "{\"text\":\"" + text.replace("\"", "\\\"") + "\"}";
+			try (OutputStream os = conn.getOutputStream()) {
+				os.write(payload.getBytes(StandardCharsets.UTF_8));
+			}
 
-            if (conn.getResponseCode() == 200) {
-                File out = File.createTempFile("lanvoila_", ".wav");
-                try (InputStream is = conn.getInputStream();
-                     FileOutputStream fos = new FileOutputStream(out)) {
-                    byte[] buf = new byte[4096];
-                    int r;
-                    while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
-                }
-                script.add(new ScriptLine(text, out));
-                addChatBubble(text, out);
-                playAudio(out);
-            } else {
-                addChatBubble("HTTP " + conn.getResponseCode() + " from /tts", null);
-            }
-        } catch (Exception e) {
-            addChatBubble("Error: " + e.getMessage(), null);
-            e.printStackTrace();
-        }
-    }
+			if (conn.getResponseCode() == 200) {
+				File out = File.createTempFile("lanvoila_", ".wav");
+				try (InputStream is = conn.getInputStream();
+					FileOutputStream fos = new FileOutputStream(out)) {
+					byte[] buf = new byte[4096];
+					int r;
+					while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+				}
+				script.add(new ScriptLine(text, out));
+				enqueueBubble(text, out);  // <-- enqueue instead of play immediately
+			} else {
+				enqueueBubble("HTTP " + conn.getResponseCode() + " from /tts", null);
+			}
+		} catch (Exception e) {
+			enqueueBubble("Error: " + e.getMessage(), null);
+			e.printStackTrace();
+		}
+	}
 
 
     public JPanel getPanel() { return panel; }
