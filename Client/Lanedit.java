@@ -3,6 +3,7 @@ import java.util.*;
 import java.awt.*;
 import javax.swing.*;
 import java.awt.event.*;
+import java.awt.image.BufferedImage;
 import java.net.*;
 import javax.swing.undo.*;
 import javax.swing.plaf.basic.*;
@@ -937,6 +938,8 @@ class Lanvoila {
     private JScrollPane chatScroll;
 	private Font matrix;
 
+	private ImageIcon miladyIcon;
+
 	private static class ScriptLine {
 		String text;
 		File audio;
@@ -949,8 +952,37 @@ class Lanvoila {
 
 
     public Lanvoila() {
+		loadProfileImage();
         buildUI();
     }
+
+	private void loadProfileImage() {
+		try {
+			File f = new File("milady.png");
+			System.out.println("Loading avatar from: " + f.getAbsolutePath());
+
+			BufferedImage raw = javax.imageio.ImageIO.read(f);
+			if (raw == null) {
+				System.out.println("ImageIO.read() returned null!");
+				miladyIcon = null;
+				return;
+			}
+
+			int size = 40; // avatar size
+			BufferedImage circle = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+			Graphics2D g2 = circle.createGraphics();
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g2.setClip(new java.awt.geom.Ellipse2D.Float(0, 0, size, size));
+			g2.drawImage(raw, 0, 0, size, size, null);
+			g2.dispose();
+
+			miladyIcon = new ImageIcon(circle);
+		} catch (Exception e) {
+			e.printStackTrace();
+			miladyIcon = null;
+		}
+	}
+
 
     // ---------- UI ----------
     private void buildUI() {
@@ -1013,6 +1045,14 @@ class Lanvoila {
 			char playChar = '\u25B6';
 			String play = (matrix != null && matrix.canDisplay(playChar)) ? " \u25B6 " : " > ";
 
+			// avatar on left
+			JLabel avatarLabel = new JLabel();
+			if (miladyIcon != null) {
+				avatarLabel.setIcon(miladyIcon);
+			}
+			avatarLabel.setOpaque(false);
+			avatarLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
 			// left message label
 			JLabel msgLabel = new JLabel("milady" + play + text);
 			Font msgFont = (matrix != null) ? matrix.deriveFont(22f) : new Font("Monospaced", Font.PLAIN, 22);
@@ -1031,29 +1071,40 @@ class Lanvoila {
 			timeLabel.setOpaque(false);
 			timeLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-			// row with GridBag so left text expands and time stays right
+			// row with GridBag: avatar -> msg -> time
 			JPanel row = new JPanel(new GridBagLayout());
 			row.setBackground(Color.BLACK);
 			GridBagConstraints gbc = new GridBagConstraints();
 			gbc.insets = new Insets(2, 8, 2, 8);
 
-			// msgLabel: occupies remaining horizontal space
+			// avatar: fixed, left side
 			gbc.gridx = 0;
+			gbc.weightx = 0.0;
+			gbc.anchor = GridBagConstraints.WEST;
+			row.add(avatarLabel, gbc);
+
+			// msgLabel: expand in middle
+			gbc = new GridBagConstraints();
+			gbc.gridx = 1;
 			gbc.weightx = 1.0;
 			gbc.fill = GridBagConstraints.HORIZONTAL;
 			gbc.anchor = GridBagConstraints.WEST;
+			gbc.insets = new Insets(2, 4, 2, 4);
 			row.add(msgLabel, gbc);
 
-			// timeLabel: anchored to right, no weight
+			// timeLabel: fixed, right side
 			gbc = new GridBagConstraints();
-			gbc.gridx = 1;
+			gbc.gridx = 2;
 			gbc.weightx = 0.0;
 			gbc.anchor = GridBagConstraints.EAST;
 			gbc.insets = new Insets(2, 8, 2, 8);
 			row.add(timeLabel, gbc);
 
-			// constrain the row's max height so BoxLayout doesn't stretch it
-			int h = Math.max(msgLabel.getPreferredSize().height, timeLabel.getPreferredSize().height) + 6;
+			// constrain height so BoxLayout doesn’t stretch
+			int h = Math.max(
+				Math.max(avatarLabel.getPreferredSize().height, msgLabel.getPreferredSize().height),
+				timeLabel.getPreferredSize().height
+			) + 6;
 			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
 			row.setAlignmentX(Component.LEFT_ALIGNMENT);
 
@@ -1062,18 +1113,16 @@ class Lanvoila {
 				@Override
 				public void mouseClicked(MouseEvent e) {
 					if (audioFile != null && audioFile.exists()) {
-						// play on click
 						new Thread(() -> playAudio(audioFile), "LanvoilaPlay").start();
 					} else {
-						// re-request TTS in background
 						new Thread(() -> sendTTS(text), "LanvoilaReplay").start();
 					}
 				}
 			});
 
-			// add to chatPanel and keep spacing small & consistent
+			// add to chatPanel
 			chatPanel.add(row);
-			chatPanel.add(Box.createVerticalStrut(4)); // small gap
+			chatPanel.add(Box.createVerticalStrut(4)); // gap
 			chatPanel.revalidate();
 
 			// scroll to bottom
@@ -1082,6 +1131,7 @@ class Lanvoila {
 			);
 		});
 	}
+
 
 	// ---------- Playback ----------
     private void playAudio(File file) {
