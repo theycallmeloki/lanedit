@@ -1045,10 +1045,11 @@ class Lanvoila {
 			char playChar = '\u25B6';
 			String play = (matrix != null && matrix.canDisplay(playChar)) ? " \u25B6 " : " > ";
 
-			// avatar on left
+			// avatar (scaled bigger 72x72)
 			JLabel avatarLabel = new JLabel();
 			if (miladyIcon != null) {
-				avatarLabel.setIcon(miladyIcon);
+				Image scaledImg = miladyIcon.getImage().getScaledInstance(128, 128, Image.SCALE_SMOOTH);
+				avatarLabel.setIcon(new ImageIcon(scaledImg));
 			}
 			avatarLabel.setOpaque(false);
 			avatarLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
@@ -1071,28 +1072,27 @@ class Lanvoila {
 			timeLabel.setOpaque(false);
 			timeLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-			// row with GridBag: avatar -> msg -> time
+			// row with GridBag so: avatar | msg | time
 			JPanel row = new JPanel(new GridBagLayout());
 			row.setBackground(Color.BLACK);
 			GridBagConstraints gbc = new GridBagConstraints();
 			gbc.insets = new Insets(2, 8, 2, 8);
 
-			// avatar: fixed, left side
+			// avatar column
 			gbc.gridx = 0;
 			gbc.weightx = 0.0;
 			gbc.anchor = GridBagConstraints.WEST;
 			row.add(avatarLabel, gbc);
 
-			// msgLabel: expand in middle
+			// msgLabel expands
 			gbc = new GridBagConstraints();
 			gbc.gridx = 1;
 			gbc.weightx = 1.0;
 			gbc.fill = GridBagConstraints.HORIZONTAL;
 			gbc.anchor = GridBagConstraints.WEST;
-			gbc.insets = new Insets(2, 4, 2, 4);
 			row.add(msgLabel, gbc);
 
-			// timeLabel: fixed, right side
+			// timeLabel on right
 			gbc = new GridBagConstraints();
 			gbc.gridx = 2;
 			gbc.weightx = 0.0;
@@ -1100,7 +1100,7 @@ class Lanvoila {
 			gbc.insets = new Insets(2, 8, 2, 8);
 			row.add(timeLabel, gbc);
 
-			// constrain height so BoxLayout doesn’t stretch
+			// fix row height
 			int h = Math.max(
 				Math.max(avatarLabel.getPreferredSize().height, msgLabel.getPreferredSize().height),
 				timeLabel.getPreferredSize().height
@@ -1120,9 +1120,9 @@ class Lanvoila {
 				}
 			});
 
-			// add to chatPanel
+			// add row to chat panel
 			chatPanel.add(row);
-			chatPanel.add(Box.createVerticalStrut(4)); // gap
+			chatPanel.add(Box.createVerticalStrut(6));
 			chatPanel.revalidate();
 
 			// scroll to bottom
