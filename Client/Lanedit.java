@@ -1,6 +1,11 @@
 import java.io.*;
 import java.util.*;
 import java.awt.*;
+
+import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.Clip;
+import javax.sound.sampled.LineEvent;
 import javax.swing.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
@@ -940,6 +945,22 @@ class Lanvoila {
 
 	private ImageIcon miladyIcon;
 
+	private final Queue<Bubble> playbackQueue = new LinkedList<>();
+	private boolean isPlaying = false;
+
+	private class Bubble {
+		JPanel row;
+		JTextArea msgArea;
+		File audio;
+		String text;
+		Bubble(JPanel row, JTextArea msgArea, File audio, String text) {
+			this.row = row;
+			this.msgArea = msgArea;
+			this.audio = audio;
+			this.text = text;
+		}
+	}
+
 	private static class ScriptLine {
 		String text;
 		File audio;
@@ -1161,11 +1182,64 @@ class Lanvoila {
 			chatPanel.add(Box.createVerticalStrut(6));
 			chatPanel.revalidate();
 
+			Bubble bubble = new Bubble(row, msgArea, audioFile, text);
+			synchronized (playbackQueue) {
+				playbackQueue.add(bubble);
+				if (!isPlaying) {
+					playNextBubble();
+				}
+			}
+
 			// scroll to bottom
 			SwingUtilities.invokeLater(() ->
 				chatScroll.getVerticalScrollBar().setValue(chatScroll.getVerticalScrollBar().getMaximum())
 			);
 		});
+	}
+
+	private void setBubbleActive(Bubble bubble, boolean active) {
+		if (active) {
+			bubble.msgArea.setBackground(Color.GREEN);
+			bubble.msgArea.setForeground(Color.BLACK);
+		} else {
+			bubble.msgArea.setBackground(Color.BLACK);
+			bubble.msgArea.setForeground(Color.GREEN);
+		}
+	}
+
+	private void playNextBubble() {
+		Bubble bubble;
+		synchronized (playbackQueue) {
+			bubble = playbackQueue.poll();
+			if (bubble == null) {
+				isPlaying = false;
+				return;
+			}
+			isPlaying = true;
+		}
+
+		// invert colors
+		SwingUtilities.invokeLater(() -> {
+			bubble.msgArea.setBackground(Color.GREEN);
+			bubble.msgArea.setForeground(Color.BLACK);
+		});
+
+		new Thread(() -> {
+			if (bubble.audio != null && bubble.audio.exists()) {
+				playAudio(bubble.audio);
+			} else {
+				sendTTS(bubble.text);
+			}
+
+			// restore colors after playback
+			SwingUtilities.invokeLater(() -> {
+				bubble.msgArea.setBackground(Color.BLACK);
+				bubble.msgArea.setForeground(Color.GREEN);
+			});
+
+			// continue with next
+			playNextBubble();
+		}, "LanvoilaPlayQueue").start();
 	}
 
 	private void themeScrollBar(JScrollPane scroll) {
@@ -1201,17 +1275,30 @@ class Lanvoila {
 
 
 	// ---------- Playback ----------
-    private void playAudio(File file) {
-        try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file))) {
-            javax.sound.sampled.AudioInputStream ais =
-                javax.sound.sampled.AudioSystem.getAudioInputStream(bis);
-            javax.sound.sampled.Clip clip = javax.sound.sampled.AudioSystem.getClip();
-            clip.open(ais);
-            clip.start();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
+    private void playAudio(File audioFile) {
+		try (AudioInputStream ais = AudioSystem.getAudioInputStream(audioFile)) {
+			Clip clip = AudioSystem.getClip();
+			clip.open(ais);
+
+			Object lock = new Object();
+			clip.addLineListener(event -> {
+				if (event.getType() == LineEvent.Type.STOP) {
+					synchronized (lock) {
+						lock.notify();
+					}
+				}
+			});
+
+			clip.start();
+			synchronized (lock) {
+				lock.wait(); // block until STOP
+			}
+
+			clip.close();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
 
     // ---------- HTTP to /tts ----------
     private void sendTTS(String text) {
