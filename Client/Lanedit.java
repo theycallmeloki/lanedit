@@ -986,36 +986,61 @@ class Lanvoila {
 
     // ---------- UI ----------
     private void buildUI() {
-        panel = new JPanel(new BorderLayout());
+		panel = new JPanel(new BorderLayout());
+		panel.setBackground(Color.BLACK);
 
-        chatPanel = new JPanel();
-        chatPanel.setLayout(new BoxLayout(chatPanel, BoxLayout.Y_AXIS));
-        chatScroll = new JScrollPane(chatPanel);
-        chatScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+		// the actual vertical list of message rows
+		chatPanel = new JPanel();
+		chatPanel.setLayout(new BoxLayout(chatPanel, BoxLayout.Y_AXIS));
+		chatPanel.setBackground(Color.BLACK);
+		chatPanel.setAlignmentY(Component.TOP_ALIGNMENT);
 
-        inputArea = new JTextArea(4, 40);
-        inputArea.setLineWrap(true);
-        inputArea.setWrapStyleWord(true);
+		// wrapper pins chatPanel to the top of the viewport (prevents stretching)
+		JPanel chatWrapper = new JPanel(new BorderLayout());
+		chatWrapper.setBackground(Color.BLACK);
+		chatWrapper.add(chatPanel, BorderLayout.NORTH);
 
-        // SHIFT+ENTER = send TTS (non-blocking)
-        InputMap im = inputArea.getInputMap(JComponent.WHEN_FOCUSED);
-        ActionMap am = inputArea.getActionMap();
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK), "sendTTS");
-        am.put("sendTTS", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                String text = inputArea.getText().trim();
-                if (!text.isEmpty()) {
-                    // addChatBubble("You: " + escapeHtml(text));
-                    inputArea.setText("");
-                    new Thread(() -> sendTTS(text), "LanvoilaTTS").start();
-                }
-            }
-        });
+		// place wrapper in the scrollpane (viewport shows wrapper; chatPanel sits at NORTH)
+		chatScroll = new JScrollPane(chatWrapper);
+		chatScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+		chatScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+		chatScroll.getViewport().setBackground(Color.BLACK);
+		chatScroll.setBorder(null);
+		chatScroll.getVerticalScrollBar().setUnitIncrement(16); // smoother scrolling
+		themeScrollBar(chatScroll);
 
-        panel.add(chatScroll, BorderLayout.CENTER);
-        panel.add(new JScrollPane(inputArea), BorderLayout.SOUTH);
-    }
+		// input area (keeps its own scrollpane)
+		inputArea = new JTextArea(4, 40);
+		inputArea.setLineWrap(true);
+		inputArea.setWrapStyleWord(true);
+		inputArea.setBackground(Color.BLACK);
+		inputArea.setForeground(Color.GREEN);
+		inputArea.setCaretColor(Color.GREEN);
+		if (matrix != null) inputArea.setFont(matrix);
+
+		JScrollPane inputScroll = new JScrollPane(inputArea);
+		inputScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+		inputScroll.setBorder(null);
+
+		// SHIFT+ENTER = send TTS (non-blocking)
+		InputMap im = inputArea.getInputMap(JComponent.WHEN_FOCUSED);
+		ActionMap am = inputArea.getActionMap();
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK), "sendTTS");
+		am.put("sendTTS", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				String text = inputArea.getText().trim();
+				if (!text.isEmpty()) {
+					inputArea.setText("");
+					new Thread(() -> sendTTS(text), "LanvoilaTTS").start();
+				}
+			}
+		});
+
+		panel.add(chatScroll, BorderLayout.CENTER);
+		panel.add(inputScroll, BorderLayout.SOUTH);
+	}
+
 
     public void setStyle(Font font, Color bg, Color fg){
 		// set font
@@ -1037,79 +1062,90 @@ class Lanvoila {
 
     // ---------- Chat ----------
     private void addChatBubble(String text, File audioFile) {
-		// Ensure this runs on the EDT
 		SwingUtilities.invokeLater(() -> {
 			String timestamp = new java.text.SimpleDateFormat("HH:mm").format(new java.util.Date());
 
-			// pick play glyph if font supports it, else fallback
+			// choose play glyph
 			char playChar = '\u25B6';
 			String play = (matrix != null && matrix.canDisplay(playChar)) ? " \u25B6 " : " > ";
 
-			// avatar (scaled bigger 72x72)
+			// avatar (scaled to 72x72)
 			JLabel avatarLabel = new JLabel();
 			if (miladyIcon != null) {
-				Image scaledImg = miladyIcon.getImage().getScaledInstance(128, 128, Image.SCALE_SMOOTH);
+				Image scaledImg = miladyIcon.getImage().getScaledInstance(72, 72, Image.SCALE_SMOOTH);
 				avatarLabel.setIcon(new ImageIcon(scaledImg));
 			}
 			avatarLabel.setOpaque(false);
-			avatarLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+			avatarLabel.setAlignmentY(Component.TOP_ALIGNMENT);
 
-			// left message label
-			JLabel msgLabel = new JLabel("milady" + play + text);
+			// message area with wrapping
+			JTextArea msgArea = new JTextArea("milady" + play + text);
 			Font msgFont = (matrix != null) ? matrix.deriveFont(22f) : new Font("Monospaced", Font.PLAIN, 22);
-			msgLabel.setFont(msgFont);
-			msgLabel.setForeground(Color.GREEN);
-			msgLabel.setBackground(Color.BLACK);
-			msgLabel.setOpaque(false);
-			msgLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+			msgArea.setFont(msgFont);
+			msgArea.setForeground(Color.GREEN);
+			msgArea.setBackground(Color.BLACK);
+			msgArea.setOpaque(true);
+			msgArea.setEditable(false);
+			msgArea.setLineWrap(true);
+			msgArea.setWrapStyleWord(true);
+			msgArea.setBorder(null);
 
-			// right timestamp label
+			// compute preferred size so height matches text lines
+			FontMetrics fm = msgArea.getFontMetrics(msgFont);
+			int lineHeight = fm.getHeight();
+			int charWidth = fm.charWidth('M');
+			int panelWidth = chatPanel.getWidth() > 0 ? chatPanel.getWidth() : 600;
+			int maxTextWidth = (int)(panelWidth * 0.6); // message take ~60% space
+			msgArea.setColumns(maxTextWidth / charWidth);
+			int textLines = (int)Math.ceil((double)msgArea.getText().length() / msgArea.getColumns());
+			msgArea.setRows(Math.max(1, textLines));
+			msgArea.setSize(new Dimension(maxTextWidth, lineHeight * msgArea.getRows() + 4));
+			msgArea.setPreferredSize(msgArea.getSize());
+
+			// timestamp label
 			JLabel timeLabel = new JLabel("[" + timestamp + "]");
 			Font timeFont = (matrix != null) ? matrix.deriveFont(14f) : new Font("Monospaced", Font.PLAIN, 14);
 			timeLabel.setFont(timeFont);
 			timeLabel.setForeground(Color.GREEN);
 			timeLabel.setBackground(Color.BLACK);
 			timeLabel.setOpaque(false);
-			timeLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+			timeLabel.setAlignmentY(Component.TOP_ALIGNMENT);
 
-			// row with GridBag so: avatar | msg | time
+			// row layout
 			JPanel row = new JPanel(new GridBagLayout());
 			row.setBackground(Color.BLACK);
 			GridBagConstraints gbc = new GridBagConstraints();
 			gbc.insets = new Insets(2, 8, 2, 8);
 
-			// avatar column
+			// avatar col
 			gbc.gridx = 0;
 			gbc.weightx = 0.0;
-			gbc.anchor = GridBagConstraints.WEST;
+			gbc.anchor = GridBagConstraints.NORTHWEST;
 			row.add(avatarLabel, gbc);
 
-			// msgLabel expands
+			// message col (wrap, fill width)
 			gbc = new GridBagConstraints();
 			gbc.gridx = 1;
 			gbc.weightx = 1.0;
 			gbc.fill = GridBagConstraints.HORIZONTAL;
 			gbc.anchor = GridBagConstraints.WEST;
-			row.add(msgLabel, gbc);
+			row.add(msgArea, gbc);
 
-			// timeLabel on right
+			// time col
 			gbc = new GridBagConstraints();
 			gbc.gridx = 2;
 			gbc.weightx = 0.0;
-			gbc.anchor = GridBagConstraints.EAST;
+			gbc.anchor = GridBagConstraints.NORTHEAST;
 			gbc.insets = new Insets(2, 8, 2, 8);
 			row.add(timeLabel, gbc);
 
-			// fix row height
-			int h = Math.max(
-				Math.max(avatarLabel.getPreferredSize().height, msgLabel.getPreferredSize().height),
-				timeLabel.getPreferredSize().height
-			) + 6;
-			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
+			// ensure row won't stretch to fill entire viewport when there are few messages
+			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
 			row.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-			// click to replay audio (or re-request TTS)
-			row.addMouseListener(new MouseAdapter() {
+			// clickable for audio replay
+			msgArea.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			msgArea.addMouseListener(new MouseAdapter() {
 				@Override
 				public void mouseClicked(MouseEvent e) {
 					if (audioFile != null && audioFile.exists()) {
@@ -1130,6 +1166,37 @@ class Lanvoila {
 				chatScroll.getVerticalScrollBar().setValue(chatScroll.getVerticalScrollBar().getMaximum())
 			);
 		});
+	}
+
+	private void themeScrollBar(JScrollPane scroll) {
+		scroll.getVerticalScrollBar().setUI(new BasicScrollBarUI() {
+			@Override
+			protected void configureScrollBarColors() {
+				this.thumbColor = new Color(0, 255, 70); // neon green
+				this.trackColor = Color.BLACK;
+			}
+
+			@Override
+			protected void paintThumb(Graphics g, JComponent c, Rectangle r) {
+				Graphics2D g2 = (Graphics2D) g.create();
+				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				g2.setColor(new Color(0, 255, 70, 180)); // translucent green
+				g2.fillRoundRect(r.x, r.y, r.width, r.height, 12, 12);
+				g2.setColor(new Color(0, 255, 70));
+				g2.drawRoundRect(r.x, r.y, r.width-1, r.height-1, 12, 12);
+				g2.dispose();
+			}
+
+			@Override
+			protected void paintTrack(Graphics g, JComponent c, Rectangle r) {
+				Graphics2D g2 = (Graphics2D) g.create();
+				g2.setColor(Color.BLACK);
+				g2.fillRect(r.x, r.y, r.width, r.height);
+				g2.dispose();
+			}
+		});
+
+		scroll.getVerticalScrollBar().setPreferredSize(new Dimension(12, Integer.MAX_VALUE));
 	}
 
 
